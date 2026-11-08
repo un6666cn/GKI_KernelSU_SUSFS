@@ -1,0 +1,102 @@
+name: pure-gki
+
+on:
+  workflow_dispatch:
+    inputs:
+      refs:
+        description: "kernel_common refs, comma separated (branch/tag/sha)"
+        required: false
+        default: "android13-5.15-lts,android13-5.15-2023-09_r3"
+      clangs:
+        description: "clang major versions, comma separated"
+        required: false
+        default: "14,17"
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        ref: ${{ fromJSON(format('["{0}"]', join(split(inputs.refs || 'android13-5.15-lts,android13-5.15-2023-09_r3', ','), '","'))) }}
+        clang: ${{ fromJSON(format('[{0}]', inputs.clangs || '14,17')) }}
+    name: ${{ matrix.ref }} / clang-${{ matrix.clang }}
+
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          sudo apt-get clean
+          df -h /
+
+      - name: Setup swap (LTO link needs headroom)
+        run: |
+          sudo fallocate -l 16G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
+      - name: Checkout pure AOSP kernel source
+        uses: actions/checkout@v4
+        with:
+          repository: aosp-mirror/kernel_common
+          ref: ${{ matrix.ref }}
+          fetch-depth: 1
+          path: kernel
+
+      - name: Install toolchain (clang-${{ matrix.clang }})
+        run: |
+          set -eux
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bc bison flex libssl-dev libelf-dev lz4 zstd cpio kmod rsync python3 dwarves wget xz-utils
+          if [ "${{ matrix.clang }}" = "14" ]; then
+            sudo apt-get install -y -qq clang-14 lld-14 llvm-14
+          else
+            wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+            chmod +x /tmp/llvm.sh
+            sudo /tmp/llvm.sh ${{ matrix.clang }}
+            sudo apt-get install -y -qq clang-${{ matrix.clang }} lld-${{ matrix.clang }} llvm-${{ matrix.clang }}
+          fi
+          V=${{ matrix.clang }}
+          mkdir -p "$HOME/llvm-bin"
+          for t in clang clang++ ld.lld llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-readelf llvm-readobj llvm-size llvm-strip llvm-as llvm-dis llvm-link opt; do
+            src="$(command -v "${t}-${V}" || true)"
+            if [ -n "$src" ]; then ln -sf "$src" "$HOME/llvm-bin/$t"; fi
+          done
+          echo "$HOME/llvm-bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/llvm-bin:$PATH"
+          clang --version | head -1
+          ld.lld --version | head -1
+          pahole --version
+
+      - name: Build Image
+        run: |
+          set -euo pipefail
+          cd kernel
+          export ARCH=arm64
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 -j"$(nproc)" gki_defconfig
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 -j"$(nproc)" olddefconfig
+          echo "== effective config (key items) =="
+          grep -E '^CONFIG_LTO|^CONFIG_CFI|^CONFIG_TRIM_UNUSED_KSYMS|^CONFIG_MODVERSIONS|^CONFIG_MODULE_SIG|^CONFIG_DEBUG_INFO_BTF|^CONFIG_LOCALVERSION|^CONFIG_KSU' out/.config || true
+          if grep -q '^CONFIG_TRIM_UNUSED_KSYMS=y' out/.config; then
+            ./scripts/config --file out/.config -d TRIM_UNUSED_KSYMS
+            make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 -j"$(nproc)" olddefconfig
+            echo "[+] TRIM_UNUSED_KSYMS disabled (plain make does not generate the ABI whitelist)"
+          fi
+          time make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 -j"$(nproc)" Image
+          ls -la out/arch/arm64/boot/Image
+          strings out/arch/arm64/boot/Image | grep -m1 'Linux version 5\.15' || true
+          grep -c '^CONFIG_' out/.config
+
+      - name: Upload kernel artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pure-${{ matrix.ref }}-clang${{ matrix.clang }}
+          path: |
+            kernel/out/arch/arm64/boot/Image
+            kernel/out/.config
+            kernel/out/System.map
+          if-no-files-found: error
+          compression-level: 6
