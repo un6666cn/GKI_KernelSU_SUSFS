@@ -128,4 +128,5 @@ jobs:
             kernel/out/.config
             kernel/out/System.map
           if-no-files-found: error
+          include-hidden-files: true
           compression-level: 6
