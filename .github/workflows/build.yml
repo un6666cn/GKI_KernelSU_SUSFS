@@ -530,15 +530,6 @@ jobs:
           nomount_commit: ${{ inputs.nomount_commit }}
           susfs_commit: ${{ inputs.susfs_commit }}
 
-      - name: Upload Artifacts
-        id: kernel-artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ steps.extract.outputs.file_name }}-AnyKernel3
-          path: ${{ github.workspace }}/AnyKernel3/**
-          if-no-files-found: ignore
-          compression-level: 9
-
       - name: Ship kernel .config
         if: always()
         shell: bash
@@ -550,6 +541,15 @@ jobs:
           else
             echo "[-] .config not found for shipping"
           fi
+
+      - name: Upload Artifacts
+        id: kernel-artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.extract.outputs.file_name }}-AnyKernel3
+          path: ${{ github.workspace }}/AnyKernel3/**
+          if-no-files-found: ignore
+          compression-level: 9
 
       - name: Write Build-verified only artifact metadata
         if: success() && inputs.root_flavor != '' && inputs.root_flavor != 'none'
