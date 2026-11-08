@@ -68,6 +68,10 @@ jobs:
           grep -q 'trace_android_vh_extfrag_for_order' mm/vmstat.c
           grep -q 'trace_android_vh_smartzram_tune_swappiness' mm/vmscan.c
           grep -q 'EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_extfrag_for_order)' drivers/android/vendor_hooks.c
+          grep -q 'CONFIG_XIAOMI_MILLET=y' arch/arm64/configs/gki_defconfig
+          grep -q 'CONFIG_MI_THERMAL_INTERFACE=y' arch/arm64/configs/gki_defconfig
+          test -f drivers/misc/xiaomi/millet/millet_core.c
+          test -f drivers/thermal/mi_thermal_interface.c
 
       - name: Install toolchain (clang-${{ matrix.clang }})
         run: |
@@ -111,6 +115,8 @@ jobs:
           time make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 -j"$(nproc)" Image
           ls -la out/arch/arm64/boot/Image
           strings out/arch/arm64/boot/Image | grep -m1 'Linux version 5\.15' || true
+          grep -q ' millet_init$' out/System.map
+          grep -q ' mi_thermal_interface_init$' out/System.map
           grep -c '^CONFIG_' out/.config
 
       - name: Upload kernel artifacts

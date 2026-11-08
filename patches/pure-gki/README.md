@@ -40,6 +40,57 @@ tracepoint（已用原厂 vmlinux 反汇编确认调用点：`extfrag_for_order`
 `IORESOURCE_MEM`、BAR 分配失败、WiFi 无法 probe。原厂 5.15.119 没有该 bus，等价于
 plain default bus，因此本补丁排除该节点以恢复原厂行为。
 
+## 0005-misc-add-xiaomi-millet-netlink-bridge.patch
+
+HyperOS 4 的 `millet_monitor`（`/system_ext/bin/millet_monitor`）通过
+`NETLINK_MILLET = 31`（与 `ro.millet.netlink=31` 对应）与内核通信，用于应用冻结、
+binder 事务统计与信号上报。移植系统沿用小米框架，缺少该驱动时 `millet_monitor`
+反复重启（实测 19 次循环）。
+
+源码取自小米 gold（`Star-caorui/android_kernel_xiaomi_gold-xiaomi_modules`
+@ `OS3.0.5.0.VNQMIXM` 的 `millet/`，2019 小米原始版权，协议布局与本机
+`ro.millet.netlink=31` 匹配），按 5.15 GKI 适配：
+
+- `binder_gki.c`：`android_vh_binder_alloc_new_buf_locked` 去掉 `should_fail` 参数；
+  `android_vh_binder_preset` 去掉 `proc` 参数；`binder_transaction` 无
+  `from_pid/from_tid/start_time`，改用 `t->from->proc->pid` 与 `t->from->pid`。
+- `millet.h`：直接使用内核自带 `frozen()` 与 `cgroup_task_frozen()`，不再自带
+  `task_frozen()`（6.6 写法）。
+- 全部子模块由 `module_init` 改为内置 initcall（core 用 `device_initcall`，其余
+  `late_initcall`），保证以 `=y` 编入 Image 后仍按依赖顺序初始化。
+- 顺带修复原源码缺陷：`millet_data` 栈变量未初始化即发送（信息泄露）、
+  `frozen_uid_min` 的 `module_param` 类型与 `int` 定义不一致、`sscanf` 无界写入。
+
+`CONFIG_XIAOMI_MILLET=y`，代码位于 `drivers/misc/xiaomi/millet/`。
+
+## 0006-thermal-add-xiaomi-thermal-message-interface.patch
+
+HyperOS 的 `PowerKeeper` / `PowerInsight` 与 thermal 守护进程通过
+`/sys/class/thermal/thermal_message/*`、`/sys/class/thermal/power_save/*` 交互；
+移植系统沿用小米框架但缺少该接口，`PowerInsight` 报
+`calculateCpuCurrentPower, NO processorPower`、`NPU freq duration file not found`，
+`PowerKeeper` 读不到 `board_sensor_temp` / `ambient_sensor_temp`。
+
+源码取自小米 marble（`Pzqqt/android_kernel_xiaomi_marble` 的
+`drivers/thermal/mi_thermal_interface.c`，含 `ambient_sensor_temp`），按 5.15 GKI 适配：
+
+- 移除 `panel_event_notifier` 屏幕状态链（本机无 QCOM 面板通知扩展；`screen_state`
+  节点保留默认值 0）。
+- 移除 `#include "../base/base.h"` 与 `thermal_core.h` 依赖。
+- 属性写入由 `snprintf(dst, size, buf)` 改为 `strscpy`，消除格式化字符串漏洞；
+  `sscanf("%s")` 改为 `sscanf("%127s")`，消除栈溢出。
+- `late_initcall_sync`，保证 thermal 核心与 cpufreq 就绪后创建节点。
+
+`CONFIG_MI_THERMAL_INTERFACE=y`、`CONFIG_MI_THERMAL_MULTI_CHARGE=y`，代码位于
+`drivers/thermal/mi_thermal_interface.c`。
+
+### 已知缺口（不属于本补丁）
+
+`PowerInsight` 还读取 `/sys/class/xr_pmodel`、`/sys/class/devfreq/npu_freq/npufreq_usage`、
+`/sys/class/power_debug/*`、`/sys/class/xm_power/*`，`PowerKeeper` 还读取
+`perf_status`、`ipa_cdev_load`、`ipa_dump_info`、`display_status`、`therm_log_enable`；
+这些在公开小米内核源码中检索为 0（疑似闭源模块），本补丁不包含。
+
 ## 验收判据
 
 对产物 Image 重建符号表后，用 `_work/scan_compat.py` 扫描 `vendor_boot` 339 个 +
