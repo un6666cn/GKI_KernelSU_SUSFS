@@ -32,10 +32,14 @@ jobs:
 
       - name: Setup swap (LTO link needs headroom)
         run: |
-          sudo fallocate -l 16G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
+          CUR=$(free -g | awk '/^Swap:/{print $2}')
+          echo "current swap: ${CUR:-0} GiB"
+          if [ "${CUR:-0}" -lt 12 ]; then
+            sudo fallocate -l 16G /swapfile2 || { sudo rm -f /swapfile2; sudo dd if=/dev/zero of=/swapfile2 bs=1M count=16384 status=none; }
+            sudo chmod 600 /swapfile2
+            sudo mkswap /swapfile2
+            sudo swapon /swapfile2
+          fi
           free -h
 
       - name: Checkout pure AOSP kernel source
