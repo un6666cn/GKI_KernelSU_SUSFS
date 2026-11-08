@@ -6,11 +6,11 @@ on:
       refs:
         description: "kernel_common refs as JSON array"
         required: false
-        default: '["android13-5.15-lts","android13-5.15-2023-09_r3"]'
+        default: '["android13-5.15-lts"]'
       clangs:
         description: "clang major versions as JSON array"
         required: false
-        default: "[14,17]"
+        default: "[14]"
 
 jobs:
   build:
@@ -42,6 +42,11 @@ jobs:
           fi
           free -h
 
+      - name: Checkout CI patches
+        uses: actions/checkout@v4
+        with:
+          path: ci
+
       - name: Checkout pure AOSP kernel source
         uses: actions/checkout@v4
         with:
@@ -49,6 +54,20 @@ jobs:
           ref: ${{ matrix.ref }}
           fetch-depth: 1
           path: kernel
+
+      - name: Apply Meizu 20 KMI patches
+        if: matrix.ref == 'android13-5.15-lts'
+        run: |
+          set -eux
+          cd kernel
+          for p in ../ci/patches/pure-gki/*.patch; do
+            echo "== applying $p"
+            git apply -v "$p"
+          done
+          git diff --stat
+          grep -q 'trace_android_vh_extfrag_for_order' mm/vmstat.c
+          grep -q 'trace_android_vh_smartzram_tune_swappiness' mm/vmscan.c
+          grep -q 'EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_extfrag_for_order)' drivers/android/vendor_hooks.c
 
       - name: Install toolchain (clang-${{ matrix.clang }})
         run: |
@@ -97,7 +116,7 @@ jobs:
       - name: Upload kernel artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: pure-${{ matrix.ref }}-clang${{ matrix.clang }}
+          name: meizu20-pure-${{ matrix.ref }}-clang${{ matrix.clang }}
           path: |
             kernel/out/arch/arm64/boot/Image
             kernel/out/.config
