@@ -539,6 +539,18 @@ jobs:
           if-no-files-found: ignore
           compression-level: 9
 
+      - name: Ship kernel .config
+        if: always()
+        shell: bash
+        run: |
+          CFG="$(find bazel-bin/common /home/runner/out -maxdepth 4 -name .config -type f 2>/dev/null | head -n1 || true)"
+          if [ -n "$CFG" ]; then
+            cp "$CFG" "$GITHUB_WORKSPACE/AnyKernel3/kernel.config"
+            echo "[+] kernel.config shipped into AnyKernel3 ($(wc -l < "$CFG") lines)"
+          else
+            echo "[-] .config not found for shipping"
+          fi
+
       - name: Write Build-verified only artifact metadata
         if: success() && inputs.root_flavor != '' && inputs.root_flavor != 'none'
         uses: ./.github/actions/build-metadata
