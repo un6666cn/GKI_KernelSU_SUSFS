@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       refs:
-        description: "kernel_common refs, comma separated (branch/tag/sha)"
+        description: "kernel_common refs as JSON array"
         required: false
-        default: "android13-5.15-lts,android13-5.15-2023-09_r3"
+        default: '["android13-5.15-lts","android13-5.15-2023-09_r3"]'
       clangs:
-        description: "clang major versions, comma separated"
+        description: "clang major versions as JSON array"
         required: false
-        default: "14,17"
+        default: "[14,17]"
 
 jobs:
   build:
@@ -19,8 +19,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ref: ${{ fromJSON(format('["{0}"]', join(split(inputs.refs || 'android13-5.15-lts,android13-5.15-2023-09_r3', ','), '","'))) }}
-        clang: ${{ fromJSON(format('[{0}]', inputs.clangs || '14,17')) }}
+        ref: ${{ fromJSON(inputs.refs) }}
+        clang: ${{ fromJSON(inputs.clangs) }}
     name: ${{ matrix.ref }} / clang-${{ matrix.clang }}
 
     steps:
