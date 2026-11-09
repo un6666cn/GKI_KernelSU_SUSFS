@@ -77,7 +77,7 @@ jobs:
         run: |
           set -eux
           sudo apt-get update -qq
-          sudo apt-get install -y -qq bc bison flex libssl-dev libelf-dev lz4 zstd cpio kmod rsync python3 dwarves wget xz-utils
+          sudo apt-get install -y -qq bc bison flex libssl-dev libelf-dev lz4 zstd cpio kmod rsync python3 dwarves wget xz-utils ccache
           if [ "${{ matrix.clang }}" = "14" ]; then
             sudo apt-get install -y -qq clang-14 lld-14 llvm-14
           else
@@ -98,26 +98,40 @@ jobs:
           ld.lld --version | head -1
           pahole --version
 
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ matrix.ref }}-clang${{ matrix.clang }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ matrix.ref }}-clang${{ matrix.clang }}-
+
       - name: Build Image
+        env:
+          CCACHE_DIR: /home/runner/.ccache
+          CCACHE_MAXSIZE: 6G
+          CCACHE_COMPRESS: "true"
+          CCACHE_SLOPPINESS: time_macros,include_file_mtime,include_file_ctime
         run: |
           set -euo pipefail
           cd kernel
           export ARCH=arm64
-          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 -j"$(nproc)" gki_defconfig
-          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 -j"$(nproc)" olddefconfig
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 CC="ccache clang" -j"$(nproc)" gki_defconfig
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 CC="ccache clang" -j"$(nproc)" olddefconfig
           echo "== effective config (key items) =="
           grep -E '^CONFIG_LTO|^CONFIG_CFI|^CONFIG_TRIM_UNUSED_KSYMS|^CONFIG_MODVERSIONS|^CONFIG_MODULE_SIG|^CONFIG_DEBUG_INFO_BTF|^CONFIG_LOCALVERSION|^CONFIG_KSU' out/.config || true
           if grep -q '^CONFIG_TRIM_UNUSED_KSYMS=y' out/.config; then
             ./scripts/config --file out/.config -d TRIM_UNUSED_KSYMS
-            make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 -j"$(nproc)" olddefconfig
+            make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 CC="ccache clang" -j"$(nproc)" olddefconfig
             echo "[+] TRIM_UNUSED_KSYMS disabled (plain make does not generate the ABI whitelist)"
           fi
-          time make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 -j"$(nproc)" Image
+          time make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 CC="ccache clang" -j"$(nproc)" Image
           ls -la out/arch/arm64/boot/Image
           strings out/arch/arm64/boot/Image | grep -m1 'Linux version 5\.15' || true
           grep -q ' millet_init$' out/System.map
           grep -q ' mi_thermal_interface_init$' out/System.map
           grep -c '^CONFIG_' out/.config
+          ccache --show-stats
 
       - name: Upload kernel artifacts
         uses: actions/upload-artifact@v4
