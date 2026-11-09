@@ -91,6 +91,36 @@ HyperOS 的 `PowerKeeper` / `PowerInsight` 与 thermal 守护进程通过
 `perf_status`、`ipa_cdev_load`、`ipa_dump_info`、`display_status`、`therm_log_enable`；
 这些在公开小米内核源码中检索为 0（疑似闭源模块），本补丁不包含。
 
+## 0013-droidspaces-sysvipc-kabi.patch
+
+Droidspaces 在 GKI 上启用 `CONFIG_SYSVIPC` / `CONFIG_IPC_NS` / `CONFIG_POSIX_MQUEUE`
+时，`struct task_struct` 的 `sysvsem` / `sysvshm` 会插入结构体中部，改变后续字段偏移，
+魅族 vendor 模块的 CRC 校验失败后拒载，表现为无限重启。
+
+补丁来自 ravindu644/Droidspaces-OSS 的
+`Documentation/resources/kernel-patches/GKI/below-kernel-6.12/001.GKI-below-6.12-fix_sysvipc_kabi_6_7_8.patch`
+（5.15 使用 `_6_7_8` 变体），把两个字段移入 `task_struct` 末尾的
+`ANDROID_KABI_RESERVE(6..8)`，结构体大小与既有字段偏移保持不变。
+
+## 0014-gki-defconfig-droidspaces.patch
+
+按 Droidspaces 官方 GKI 配置清单启用 ABI 安全项：
+
+- 必需：`SYSVIPC`、`POSIX_MQUEUE`、`IPC_NS`、`PID_NS`、`DEVTMPFS`、
+  `NETFILTER_XT_MATCH_ADDRTYPE`
+- 推荐：`USER_NS`、`IP6_NF_NAT`、`IP6_NF_TARGET_MASQUERADE`、`MACVLAN`、
+  `NETFILTER_XT_TARGET_LOG`、`NETFILTER_XT_MATCH_RECENT`、`IP_SET`、
+  `IP_SET_HASH_IP`、`IP_SET_HASH_NET`、`NETFILTER_XT_SET`、
+  `TMPFS_POSIX_ACL`、`TMPFS_XATTR`
+
+`CFS_BANDWIDTH`、`CGROUP_PIDS` 按官方说明保持关闭：二者改变调度器/cgroup 结构体，
+无 padding 可覆盖，开启会导致 vendor 模块 CRC 失配。
+
+## 0015-mglru-min-ttl-1000.patch
+
+MGLRU 的 `lru_gen_min_ttl` 默认值由 0 改为 `HZ`（1 秒），对应
+`/sys/kernel/mm/lru_gen/min_ttl_ms` 默认 1000，与设备运行态实验值一致，重启后保持。
+
 ## 验收判据
 
 对产物 Image 重建符号表后，用 `_work/scan_compat.py` 扫描 `vendor_boot` 339 个 +
