@@ -16,9 +16,11 @@ runs:
     # would let them terminate the string and silently drop the quoting.
     env:
       CONFIG_LIST: ${{ inputs.config_list }}
-    working-directory: ${{ github.workspace }}/kernel/common
+    working-directory: ${{ github.workspace }}/kernel
     run: |
       set -euo pipefail
+
+      if [ -d common ]; then cd common; fi
 
       DEFCONFIG="arch/arm64/configs/gki_defconfig"
 
